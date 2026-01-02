@@ -932,11 +932,11 @@ export async function POST(request: NextRequest) {
         return null;
       }
 
-      // 계정 마스터에서 API 정보 조회
+      // 계정 마스터에서 API 정보 조회 (대소문자 무시)
       const { data: accountData, error } = await supabase
         .from('account_master')
-        .select('sp_api_client_id, sp_api_client_secret, sp_api_refresh_token, sp_api_base_url')
-        .eq('account_name', accountName)
+        .select('sp_api_client_id, sp_api_client_secret, sp_api_refresh_token, sp_api_base_url, account_name')
+        .ilike('account_name', accountName)
         .single();
 
       if (error || !accountData) {
@@ -1449,7 +1449,7 @@ export async function POST(request: NextRequest) {
                             const { data: accountData } = await supabase
                               .from('account_master')
                               .select('referral_fee_rate')
-                              .eq('account_name', skuMasterData.amazon_account_name)
+                              .ilike('account_name', skuMasterData.amazon_account_name)
                               .single();
                             
                             if (accountData && accountData.referral_fee_rate) {
