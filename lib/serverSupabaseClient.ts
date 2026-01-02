@@ -30,6 +30,7 @@ export function getServerSupabase(): SupabaseClient | null {
   }
 }
 
-// 하위 호환성을 위한 export (기존 코드에서 사용 중)
-export const serverSupabase = getServerSupabase();
+// 하위 호환성을 위한 export는 제거
+// 빌드 시점에 환경 변수가 없을 수 있으므로, 모듈 레벨에서 getServerSupabase()를 호출하지 않음
+// 대신 getServerSupabase() 함수를 직접 사용하세요
 

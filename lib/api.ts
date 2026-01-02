@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { serverSupabase } from './serverSupabaseClient';
+import { getServerSupabase } from './serverSupabaseClient';
 import { MonthlySummary, SKUSummary, SKUMaster, SKUMonthlyData, Channel } from './types';
 
 // 채널별 테이블 이름 반환 헬퍼 함수

@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { getServerSupabase } from '@/lib/serverSupabaseClient';
 
 // GET: 계정 마스터 목록 조회
 export async function GET(request: NextRequest) {
   try {
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase client is not configured. Please check environment variables.' },
+        { status: 500 }
+      );
+    }
+    
     const { data, error } = await supabase
       .from('account_master')
       .select('*')
@@ -90,6 +93,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('계정 마스터 생성 시도:', JSON.stringify(insertData, null, 2));
+    
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase client is not configured. Please check environment variables.' },
+        { status: 500 }
+      );
+    }
     
     const { data, error } = await supabase
       .from('account_master')
@@ -185,6 +196,14 @@ export async function PUT(request: NextRequest) {
       updateData.sp_api_base_url = (sp_api_base_url && sp_api_base_url.trim() !== '') ? sp_api_base_url.trim() : 'https://sellingpartnerapi-na.amazon.com';
     }
 
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase client is not configured. Please check environment variables.' },
+        { status: 500 }
+      );
+    }
+
     const { data, error } = await supabase
       .from('account_master')
       .update(updateData)
@@ -228,6 +247,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'ID는 필수입니다.' },
         { status: 400 }
+      );
+    }
+
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase client is not configured. Please check environment variables.' },
+        { status: 500 }
       );
     }
 

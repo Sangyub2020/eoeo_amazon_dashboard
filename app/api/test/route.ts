@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serverSupabase } from '@/lib/serverSupabaseClient';
+import { getServerSupabase } from '@/lib/serverSupabaseClient';
 
 // 테스트용 API - 환경 변수 및 Supabase 연결 확인
 export async function GET(request: NextRequest) {
@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     };
 
     let supabaseTest = null;
+    const serverSupabase = getServerSupabase();
     if (serverSupabase) {
       try {
         const { data, error } = await serverSupabase
