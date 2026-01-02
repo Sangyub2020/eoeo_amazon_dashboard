@@ -175,7 +175,34 @@ export default async function AmazonUSPage() {
 
       {/* 최근 달 상세 데이터 */}
       <SKUTable
-        data={recentSKUDetails}
+        data={recentSKUDetails.map((item: any) => {
+          // SKUMonthlyData를 SalesData 형식으로 변환
+          const productName = item.sku_master?.product_name || item.product_name || '';
+          const channel = item.sku_master?.channel || 'amazon_us';
+          
+          // 매출 계산 (gross_sales 또는 다른 필드 사용)
+          const revenue = Number(item.gross_sales || item.total_revenue || 0);
+          
+          // 비용 계산 (cost 필드가 있으면 사용, 없으면 revenue - margin 또는 0)
+          const cost = Number(item.cost || (item.margin !== undefined ? revenue - item.margin : 0));
+          
+          // 이익 계산 (margin 또는 revenue - cost)
+          const profit = Number(item.margin || item.profit || (revenue - cost));
+          
+          // 날짜 생성 (해당 월의 첫 번째 날)
+          const date = `${item.year}-${String(item.month).padStart(2, '0')}-01`;
+          
+          return {
+            marketplace: channel as 'amazon_us' | 'tiktok_shop',
+            date: date,
+            sku: item.sku,
+            product_name: productName,
+            revenue: revenue,
+            cost: cost,
+            profit: profit,
+            quantity: item.total_order_quantity ? Number(item.total_order_quantity) : undefined,
+          };
+        })}
         title={`${currentYear}년 ${currentMonth}월 SKU별 상세 데이터`}
       />
 
