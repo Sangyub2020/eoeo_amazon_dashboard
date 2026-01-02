@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { getSupabase } from './supabaseClient';
 import { getServerSupabase } from './serverSupabaseClient';
 import { MonthlySummary, SKUSummary, SKUMaster, SKUMonthlyData, Channel } from './types';
 
@@ -14,8 +14,9 @@ function getMonthlyDataTableName(channel: Channel): string {
   }
 }
 
-// SKU 마스터 정보 가져오기
+// SKU 마스터 정보 가져오기 (클라이언트 사이드에서 사용 가능)
 export async function getSKUMaster(sku?: string): Promise<SKUMaster[]> {
+  const supabase = getSupabase();
   let query = supabase
     .from('sku_master')
     .select('*')
@@ -242,6 +243,7 @@ export async function getSKUDetailsByMonth(
 
 // SKU 마스터 정보 저장/업데이트
 export async function upsertSKUMaster(skuData: SKUMaster): Promise<SKUMaster> {
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from('sku_master')
     .upsert(skuData, {
@@ -262,6 +264,7 @@ export async function upsertSKUMaster(skuData: SKUMaster): Promise<SKUMaster> {
 export async function upsertSKUMonthlyData(
   monthlyData: SKUMonthlyData & { channel?: Channel }
 ): Promise<SKUMonthlyData> {
+  const supabase = getSupabase();
   // channel이 없으면 sku_master에서 조회
   if (!monthlyData.channel) {
     const { data: skuMaster } = await supabase
@@ -298,6 +301,7 @@ export async function bulkUpsertSKUMonthlyData(
   monthlyDataList: (SKUMonthlyData & { channel?: Channel })[],
   channel: Channel
 ): Promise<void> {
+  const supabase = getSupabase();
   const tableName = getMonthlyDataTableName(channel);
   const { error } = await supabase
     .from(tableName)
