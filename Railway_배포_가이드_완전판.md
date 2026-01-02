@@ -19,7 +19,7 @@
 2. "Start a New Project" 클릭
 3. "Deploy from GitHub repo" 선택
 4. GitHub 계정 연결 (처음인 경우)
-5. `amazon-sales-dashboard` 저장소 선택
+5. `Sangyub2020/eoeo_amazon_dashboard` 저장소 선택
 6. 프로젝트 이름 입력 (예: "amazon-sales-dashboard")
 
 ### 1.2 서비스 생성
