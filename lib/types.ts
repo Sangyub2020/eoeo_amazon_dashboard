@@ -100,6 +100,51 @@ export interface AmazonUSMonthlyData {
   // (16) Total Order Quantity
   total_order_quantity?: number;
   
+  // (17) CCONMA - 외부 구글 시트에서 동기화된 재고 정보
+  cconma?: number;
+  
+  // (18) 재고 관련 추가 컬럼들 (외부 구글 시트에서 동기화)
+  pending_in_kr?: number; // 한국 대기 중인 재고
+  in_air?: number; // 항공 운송 중인 재고
+  in_ocean?: number; // 해상 운송 중인 재고
+  sl_glovis?: number; // SL Glovis 재고
+  ctk_usa?: number; // CTK USA 재고
+  
+  created_at?: string;
+  updated_at?: string;
+  allocated_account_cost?: number; // 계정 단위 비용에서 안분된 금액
+}
+
+// Amazon US 계정별 월별 비용
+export interface AmazonUSAccountMonthlyCost {
+  id?: string;
+  account_name: string;
+  year: number;
+  month: number;
+  
+  // 계정 단위 비용 항목들
+  premium_service_fee?: number;
+  inbound_placement_fee?: number;
+  monthly_storage_fee?: number;
+  longterm_storage_fee?: number;
+  fba_removal_order_disposal_fee?: number;
+  fba_removal_order_return_fee?: number;
+  subscription_fee?: number;
+  paid_services_fee?: number;
+  other_account_fees?: number;
+  
+  // 총 비용
+  total_account_cost?: number;
+  
+  // 안분 관련 정보
+  is_allocated?: boolean;
+  allocated_at?: string;
+  allocation_method?: string; // 'sales_ratio' | 'quantity_ratio'
+  
+  // 메모/설명
+  description?: string;
+  notes?: string;
+  
   created_at?: string;
   updated_at?: string;
 }
@@ -307,4 +352,42 @@ export interface SalesData {
   currency?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+// 서비스 매출 타입
+export interface ServiceRevenue {
+  id?: string;
+  category?: string;
+  vendorCode?: string;
+  companyName?: string;
+  brandNames?: string[];
+  businessRegistrationNumber?: string;
+  invoiceEmail?: string;
+  projectCode?: string;
+  project?: string;
+  projectCategory?: string;
+  projectName?: string;
+  eoeoManager?: string;
+  contractLink?: string;
+  estimateLink?: string;
+  attributionYearMonth?: string;
+  advanceBalance?: string;
+  ratio?: string;
+  expectedDepositDate?: string;
+  depositStatus?: '입금완료' | '입금예정' | '입금지연';
+  oneTimeExpenseAmount?: number;
+  expectedDepositAmount?: number;
+  expectedDepositCurrency?: 'KRW' | 'USD';
+  description?: string;
+  depositDate?: string;
+  depositAmount?: number;
+  depositCurrency?: 'KRW' | 'USD';
+  createdDate?: string;
+  invoiceCopy?: string;
+  invoiceAttachmentStatus?: 'required' | 'completed' | 'not_required';
+  issueNotes?: string;
+  taxStatus?: string;
+  invoiceSupplyPrice?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }

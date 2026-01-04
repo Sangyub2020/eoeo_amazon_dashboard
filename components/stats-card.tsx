@@ -13,28 +13,28 @@ interface StatsCardProps {
 
 export function StatsCard({ title, value, subtitle, trend }: StatsCardProps) {
   return (
-    <Card>
-      <CardContent className="p-6">
-        <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
+    <Card className="flex flex-col gap-6 hover:shadow-md transition-all duration-300">
+      <CardContent className="p-0">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{title}</p>
         <div className="flex items-baseline justify-between">
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
+          <p className="text-2xl font-semibold bg-gradient-to-r from-cyan-300 to-purple-300 bg-clip-text text-transparent">{value}</p>
           {trend && (
             <div
-              className={`flex items-center gap-1 text-sm ${
-                trend.isPositive ? 'text-green-600' : 'text-red-600'
+              className={`flex items-center gap-1 text-xs font-medium ${
+                trend.isPositive ? 'text-cyan-400' : 'text-red-400'
               }`}
             >
               {trend.isPositive ? (
-                <TrendingUp className="w-4 h-4" />
+                <TrendingUp className="w-3.5 h-3.5" />
               ) : (
-                <TrendingDown className="w-4 h-4" />
+                <TrendingDown className="w-3.5 h-3.5" />
               )}
               <span>{Math.abs(trend.value)}%</span>
             </div>
           )}
         </div>
         {subtitle && (
-          <p className="text-xs text-gray-500 mt-2">{subtitle}</p>
+          <p className="text-xs text-muted-foreground mt-3">{subtitle}</p>
         )}
       </CardContent>
     </Card>

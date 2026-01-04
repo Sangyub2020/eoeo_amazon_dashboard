@@ -48,8 +48,8 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">통합 대시보드</h1>
-        <p className="text-gray-600">모든 마켓플레이스의 월별 매출과 이익 현황</p>
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-300 to-purple-300 bg-clip-text text-transparent mb-2">통합 대시보드</h1>
+        <p className="text-gray-400">모든 마켓플레이스의 월별 매출과 이익 현황</p>
       </div>
 
       {/* 통계 카드 */}

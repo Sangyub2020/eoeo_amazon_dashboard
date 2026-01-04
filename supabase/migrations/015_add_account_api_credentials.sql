@@ -18,3 +18,5 @@ CREATE INDEX IF NOT EXISTS idx_account_master_has_api_info ON account_master(acc
 WHERE sp_api_client_id IS NOT NULL AND sp_api_client_secret IS NOT NULL AND sp_api_refresh_token IS NOT NULL;
 
 
+
+

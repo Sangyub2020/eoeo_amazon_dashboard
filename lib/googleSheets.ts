@@ -74,15 +74,50 @@ export async function readMultipleSheets(
   return results;
 }
 
+// 특정 탭만 읽기 (시트 ID와 탭 이름 매핑)
+export async function readSpecificTabsFromSheets(
+  tabConfigs: { spreadsheetId: string; tabName: string }[]
+): Promise<{ spreadsheetId: string; sheetName: string; data: any[][] }[]> {
+  const results = [];
+
+  for (const { spreadsheetId, tabName } of tabConfigs) {
+    try {
+      const data = await readSheetData(spreadsheetId, tabName);
+      if (data.length > 0) {
+        results.push({ spreadsheetId, sheetName: tabName, data });
+        console.log(
+          `✓ Read ${data.length} rows from ${spreadsheetId}/${tabName}`
+        );
+      } else {
+        console.log(
+          `⚠ Empty tab skipped: ${spreadsheetId}/${tabName}`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `Error reading tab ${spreadsheetId}/${tabName}:`,
+        error
+      );
+      // 개별 탭 오류는 무시하고 계속 진행
+    }
+  }
+
+  return results;
+}
+
 // 여러 시트의 모든 탭에서 데이터 읽기 (자동 감지)
 export async function readAllTabsFromSheets(
   spreadsheetIds: string[],
-  excludeTabs?: string[] // 제외할 탭 이름 목록 (예: ['Summary', 'Template'])
+  excludeTabs?: string[], // 제외할 탭 이름 목록 (예: ['Summary', 'Template'])
+  includeTabs?: string[] // 포함할 탭 이름 목록 (지정되면 이 탭만 읽음)
 ): Promise<{ spreadsheetId: string; sheetName: string; data: any[][] }[]> {
   const results = [];
   const excludeSet = new Set(
     (excludeTabs || []).map((name) => name.toLowerCase())
   );
+  const includeSet = includeTabs
+    ? new Set(includeTabs.map((name) => name.toLowerCase()))
+    : null;
 
   for (const spreadsheetId of spreadsheetIds) {
     try {
@@ -95,6 +130,12 @@ export async function readAllTabsFromSheets(
 
       // 각 탭에서 데이터 읽기
       for (const tabName of tabs) {
+        // 포함 목록이 있고 현재 탭이 포함 목록에 없으면 건너뛰기
+        if (includeSet && !includeSet.has(tabName.toLowerCase())) {
+          console.log(`Skipping tab not in include list: ${tabName}`);
+          continue;
+        }
+
         // 제외 목록에 있는 탭은 건너뛰기
         if (excludeSet.has(tabName.toLowerCase())) {
           console.log(`Skipping excluded tab: ${tabName}`);

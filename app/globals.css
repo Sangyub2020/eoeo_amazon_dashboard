@@ -3,15 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* 기본 배경 및 텍스트 */
+  --background: #121212;
+  --foreground: #e5e7eb;
+  
+  /* OKLCH 색상 변수 (더 정교한 색상 관리) */
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.22 0 0);
+  --secondary-foreground: oklch(0.98 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  --border: oklch(0.22 0 0);
+  --input: oklch(0.22 0 0);
+  --ring: oklch(0.4 0 0);
+  --radius: 0.5rem;
 }
 
 body {
@@ -22,9 +30,36 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 커스텀 스크롤바 스타일 */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* WebKit 기반 브라우저 (Chrome, Safari, Edge) */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #06b6d4 0%, #a855f7 100%);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #0891b2 0%, #9333ea 100%);
+  }
+
+  /* Firefox */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #06b6d4 #00000033;
   }
 }
 

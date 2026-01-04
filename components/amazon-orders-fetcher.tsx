@@ -6,23 +6,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Download, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export function AmazonOrdersFetcher() {
+  // 주문 정보 (OrderMetrics) 관련 상태
   const [isLoading, setIsLoading] = useState(false);
   const [orders, setOrders] = useState<AmazonOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [responseData, setResponseData] = useState<any>(null); // API Route 응답 데이터 저장
-  const [requestParams, setRequestParams] = useState<FetchAmazonOrdersRequest>({
-    marketplaceIds: ['ATVPDKIKX0DER'], // US Marketplace 기본값
-    createdAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  });
+  const [responseData, setResponseData] = useState<any>(null);
+
+  // Fee 정보 관련 상태
+  const [isLoadingFees, setIsLoadingFees] = useState(false);
+  const [feesError, setFeesError] = useState<string | null>(null);
+  const [feesSuccess, setFeesSuccess] = useState(false);
+  const [feesResponseData, setFeesResponseData] = useState<any>(null);
+
+  // 재고 정보 관련 상태
+  const [isLoadingInventory, setIsLoadingInventory] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [inventorySuccess, setInventorySuccess] = useState(false);
+  const [inventoryResponseData, setInventoryResponseData] = useState<any>(null);
   
-  // 추가 파라미터: 브랜드/SKU/월 필터링 및 저장 옵션
+  // 필터링 옵션
   const [targetSku, setTargetSku] = useState('');
-  const [targetYear, setTargetYear] = useState(new Date().getFullYear());
-  const [targetMonth, setTargetMonth] = useState(new Date().getMonth() + 1);
-  const [saveToDatabase, setSaveToDatabase] = useState(true);
-  const [fetchInventory, setFetchInventory] = useState(true);
-  const [fetchOrderList, setFetchOrderList] = useState(false); // 기본값: false (주문 목록은 선택사항)
+  const [targetYear, setTargetYear] = useState<number | ''>('');
+  const [targetMonth, setTargetMonth] = useState<number | ''>('');
   
   // 환불 정보 조회 관련 상태
   const [isLoadingRefunds, setIsLoadingRefunds] = useState(false);
@@ -79,35 +85,38 @@ export function AmazonOrdersFetcher() {
     }
   };
 
-  const handleFetchOrders = async () => {
+  // 주문 정보 가져오기 (OrderMetrics)
+  const handleFetchOrderMetrics = async () => {
     setIsLoading(true);
     setError(null);
     setSuccess(false);
     setOrders([]);
 
     try {
-      // Next.js API Route 호출
       const response = await fetch('/api/fetch-amazon-orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...requestParams,
-          sku: targetSku || undefined, // 특정 SKU 필터 (빈 문자열이면 undefined)
+          marketplaceIds: ['ATVPDKIKX0DER'],
+          sku: targetSku.trim() || undefined,
           year: targetYear || undefined,
           month: targetMonth || undefined,
-          saveToDatabase: saveToDatabase,
-          fetchInventory: fetchInventory, // 재고 정보 가져오기
-          fetchOrderList: fetchOrderList, // 주문 목록 가져오기 (선택사항)
-          maxPages: 1000, // 최대 1000페이지 (10만개 주문)까지 처리
-          maxOrdersToProcess: 100, // Railway는 타임아웃이 없으므로 더 많이 처리 가능
+          saveToDatabase: true,
+          fetchOrderMetrics: true, // 주문 정보만
+          fetchFees: false,
+          fetchInventory: false,
+          fetchOrderList: false,
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'API 호출 실패' }));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        // 더 자세한 에러 메시지 표시
+        const errorMessage = errorData.note || errorData.error || `HTTP error! status: ${response.status}`;
+        console.error('API 에러 상세:', errorData);
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -137,6 +146,102 @@ export function AmazonOrdersFetcher() {
       setSuccess(false);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fee 정보 가져오기 (FeesEstimate)
+  const handleFetchFees = async () => {
+    setIsLoadingFees(true);
+    setFeesError(null);
+    setFeesSuccess(false);
+
+    try {
+      const response = await fetch('/api/fetch-amazon-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          marketplaceIds: ['ATVPDKIKX0DER'],
+          sku: targetSku.trim() || undefined,
+          year: targetYear || undefined,
+          month: targetMonth || undefined,
+          saveToDatabase: true,
+          fetchOrderMetrics: false,
+          fetchFees: true, // Fee 정보만
+          fetchInventory: false,
+          fetchOrderList: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'API 호출 실패' }));
+        const errorMessage = errorData.note || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Fee 정보를 가져오는데 실패했습니다.');
+      }
+
+      setFeesResponseData(data);
+      setFeesSuccess(true);
+    } catch (err: any) {
+      console.error('Error fetching fees:', err);
+      setFeesError(err.message || '알 수 없는 오류가 발생했습니다.');
+      setFeesSuccess(false);
+    } finally {
+      setIsLoadingFees(false);
+    }
+  };
+
+  // 재고 정보 가져오기 (FBA Inventory)
+  const handleFetchInventory = async () => {
+    setIsLoadingInventory(true);
+    setInventoryError(null);
+    setInventorySuccess(false);
+
+    try {
+      const response = await fetch('/api/fetch-amazon-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          marketplaceIds: ['ATVPDKIKX0DER'],
+          sku: targetSku.trim() || undefined,
+          year: targetYear || undefined,
+          month: targetMonth || undefined,
+          saveToDatabase: true,
+          fetchOrderMetrics: false,
+          fetchFees: false,
+          fetchInventory: true, // 재고 정보만
+          fetchOrderList: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'API 호출 실패' }));
+        const errorMessage = errorData.note || errorData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      if (!data || !data.success) {
+        throw new Error(data?.error || '재고 정보를 가져오는데 실패했습니다.');
+      }
+
+      setInventoryResponseData(data);
+      setInventorySuccess(true);
+    } catch (err: any) {
+      console.error('Error fetching inventory:', err);
+      setInventoryError(err.message || '알 수 없는 오류가 발생했습니다.');
+      setInventorySuccess(false);
+    } finally {
+      setIsLoadingInventory(false);
     }
   };
 
@@ -182,193 +287,138 @@ export function AmazonOrdersFetcher() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* 요청 파라미터 설정 */}
+            {/* 필터링 옵션 */}
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    Marketplace IDs (쉼표로 구분)
+                    특정 SKU (선택사항)
                   </label>
                   <input
                     type="text"
-                    value={requestParams.marketplaceIds?.join(',') || ''}
-                    onChange={(e) =>
-                      setRequestParams({
-                        ...requestParams,
-                        marketplaceIds: e.target.value
-                          .split(',')
-                          .map((id) => id.trim())
-                          .filter((id) => id.length > 0),
-                      })
-                    }
-                    placeholder="ATVPDKIKX0DER"
+                    value={targetSku}
+                    onChange={(e) => setTargetSku(e.target.value)}
+                    placeholder="SKU 코드 입력"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isLoading}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    US: ATVPDKIKX0DER
+                    비워두면 모든 SKU에 대해 업데이트
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    Created After (YYYY-MM-DD)
+                    연도 (선택사항)
                   </label>
                   <input
-                    type="date"
-                    value={requestParams.createdAfter?.split('T')[0] || ''}
-                    onChange={(e) =>
-                      setRequestParams({
-                        ...requestParams,
-                        createdAfter: e.target.value ? new Date(e.target.value).toISOString() : undefined,
-                      })
-                    }
+                    type="number"
+                    value={targetYear}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTargetYear(val === '' ? '' : parseInt(val) || '');
+                    }}
+                    placeholder="연도 입력 (예: 2025)"
+                    min="2020"
+                    max="2099"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isLoading}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    비워두면 모든 기간에 대해 업데이트
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    Created Before (YYYY-MM-DD, 선택사항)
+                    월 (선택사항)
                   </label>
-                  <input
-                    type="date"
-                    value={requestParams.createdBefore?.split('T')[0] || ''}
-                    onChange={(e) =>
-                      setRequestParams({
-                        ...requestParams,
-                        createdBefore: e.target.value ? new Date(e.target.value).toISOString() : undefined,
-                      })
-                    }
+                  <select
+                    value={targetMonth}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTargetMonth(val === '' ? '' : parseInt(val));
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     disabled={isLoading}
-                  />
+                  >
+                    <option value="">전체</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>
+                        {m}월
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    비워두면 모든 기간에 대해 업데이트
+                  </p>
                 </div>
               </div>
-
-              {/* 필터링 옵션 */}
-              <div className="border-t pt-4">
-                <h3 className="text-sm font-semibold mb-3">필터링 옵션 (선택사항)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      특정 SKU
-                    </label>
-                    <input
-                      type="text"
-                      value={targetSku}
-                      onChange={(e) => setTargetSku(e.target.value)}
-                      placeholder="SKU 코드 입력 (예: AMZ-PROD-001)"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      disabled={isLoading}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      비워두면 모든 SKU
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      연도
-                    </label>
-                    <input
-                      type="number"
-                      value={targetYear}
-                      onChange={(e) => setTargetYear(parseInt(e.target.value) || new Date().getFullYear())}
-                      min="2020"
-                      max="2099"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      disabled={isLoading}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      월
-                    </label>
-                    <select
-                      value={targetMonth}
-                      onChange={(e) => setTargetMonth(parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      disabled={isLoading}
-                    >
-                      <option value="">전체</option>
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                        <option key={m} value={m}>
-                          {m}월
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 저장 옵션 */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="saveToDatabase"
-                    checked={saveToDatabase}
-                    onChange={(e) => setSaveToDatabase(e.target.checked)}
-                    className="w-4 h-4"
-                    disabled={isLoading}
-                  />
-                  <label htmlFor="saveToDatabase" className="text-sm font-medium">
-                    Supabase에 데이터 저장
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="fetchInventory"
-                    checked={fetchInventory}
-                    onChange={(e) => setFetchInventory(e.target.checked)}
-                    className="w-4 h-4"
-                    disabled={isLoading}
-                  />
-                  <label htmlFor="fetchInventory" className="text-sm font-medium">
-                    FBA 재고 정보 가져오기
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="fetchOrderList"
-                    checked={fetchOrderList}
-                    onChange={(e) => setFetchOrderList(e.target.checked)}
-                    className="w-4 h-4"
-                    disabled={isLoading}
-                  />
-                  <label htmlFor="fetchOrderList" className="text-sm font-medium">
-                    주문 목록 가져오기
-                  </label>
-                </div>
-                <p className="text-xs text-gray-500 ml-6">
-                  주문 목록을 가져오지 않으면 매출 집계만 수행하여 더 빠르게 처리됩니다.
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>참고:</strong> Marketplace ID는 US (ATVPDKIKX0DER)로 고정되어 있으며, 
+                  모든 데이터는 자동으로 Supabase에 저장됩니다.
                 </p>
               </div>
             </div>
 
-            {/* 버튼 */}
-            <button
-              onClick={handleFetchOrders}
-              disabled={isLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  주문 데이터 가져오는 중...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  주문 데이터 가져오기
-                </>
-              )}
-            </button>
+            {/* 버튼들 */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={handleFetchOrderMetrics}
+                disabled={isLoading}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    가져오는 중...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    주문 정보 가져오기
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleFetchFees}
+                disabled={isLoadingFees}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isLoadingFees ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    가져오는 중...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Fee 정보 가져오기
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleFetchInventory}
+                disabled={isLoadingInventory}
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isLoadingInventory ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    가져오는 중...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    재고 정보 가져오기
+                  </>
+                )}
+              </button>
+            </div>
 
             {/* 성공/에러 메시지 */}
             {success && (

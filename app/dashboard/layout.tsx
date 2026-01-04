@@ -1,5 +1,4 @@
 import { DashboardSidebar } from '@/components/dashboard-sidebar';
-import { SyncButton } from '@/app/api/sync/button';
 
 export default function DashboardLayout({
   children,
@@ -7,13 +6,12 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-[#121212] overflow-x-hidden custom-scrollbar">
       <DashboardSidebar />
-      <main className="flex-1 p-8">
-        <div className="mb-6 flex justify-end">
-          <SyncButton />
+      <main className="flex-1 p-8 min-w-0 overflow-x-hidden">
+        <div className="w-full min-w-0 overflow-x-hidden">
+          {children}
         </div>
-        {children}
       </main>
     </div>
   );

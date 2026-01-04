@@ -30,3 +30,5 @@ CREATE POLICY "Allow public delete access to account_master" ON account_master
   USING (true);
 
 
+
+

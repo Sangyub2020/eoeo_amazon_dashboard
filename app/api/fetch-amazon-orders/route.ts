@@ -342,10 +342,11 @@ async function fetchOrderMetrics(
   const endpoint = `${apiBaseUrl}/sales/v1/orderMetrics`;
   const url = new URL(endpoint);
 
-  // 필수 파라미터
-  if (marketplaceIds && marketplaceIds.length > 0) {
-    marketplaceIds.forEach((id) => url.searchParams.append("marketplaceIds", id));
+  // 필수 파라미터: marketplaceIds는 필수입니다
+  if (!marketplaceIds || marketplaceIds.length === 0) {
+    throw new Error("marketplaceIds는 OrderMetrics API의 필수 파라미터입니다.");
   }
+  marketplaceIds.forEach((id) => url.searchParams.append("marketplaceIds", id));
   url.searchParams.append("interval", interval);
   url.searchParams.append("granularity", granularity);
   
@@ -821,9 +822,11 @@ async function fetchFBAInventory(
   accessToken: string,
   marketplaceIds?: string[],
   skus?: string[],
-  details: boolean = false
+  details: boolean = false,
+  baseUrl?: string // 계정별 Base URL (선택사항)
 ): Promise<any> {
-  const endpoint = `${SP_API_BASE_URL_DEFAULT}/fba/inventory/v1/summaries`;
+  const apiBaseUrl = baseUrl || SP_API_BASE_URL_DEFAULT;
+  const endpoint = `${apiBaseUrl}/fba/inventory/v1/summaries`;
   const url = new URL(endpoint);
 
   // 필수 파라미터: granularityType, granularityId, marketplaceIds
@@ -879,11 +882,24 @@ async function fetchFBAInventory(
     console.warn(`FBA Inventory API 경고: ${errorMessages}`);
   }
   
-  // 응답 구조 로깅
+  // 응답 구조 로깅 및 디버깅
   const summaries = data.payload?.inventorySummaries || [];
   console.log(`FBA Inventory API 응답: ${summaries.length}개 SKU의 재고 정보`);
+  
+  // 상세 디버깅 로그
+  console.log('FBA Inventory API 응답 구조:', {
+    hasPayload: !!data.payload,
+    payloadKeys: data.payload ? Object.keys(data.payload) : [],
+    hasInventorySummaries: !!data.payload?.inventorySummaries,
+    inventorySummariesType: Array.isArray(data.payload?.inventorySummaries) ? 'array' : typeof data.payload?.inventorySummaries,
+    inventorySummariesLength: Array.isArray(data.payload?.inventorySummaries) ? data.payload.inventorySummaries.length : 'N/A',
+    fullPayload: JSON.stringify(data.payload).substring(0, 1000),
+  });
+  
   if (summaries.length > 0) {
     console.log(`첫 번째 SKU 예시:`, JSON.stringify(summaries[0], null, 2).substring(0, 300));
+  } else {
+    console.warn('⚠️ 재고 정보가 0개입니다. API 응답 전체:', JSON.stringify(data).substring(0, 2000));
   }
   
   return data;
@@ -940,7 +956,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (error || !accountData) {
-        console.warn(`계정 "${accountName}"의 API 정보를 찾을 수 없습니다. 기본값을 사용합니다.`);
+        console.warn(`계정 "${accountName}"의 API 정보를 찾을 수 없습니다.`, error?.message || '계정이 존재하지 않습니다.');
         // 계정 정보가 없으면 기본값 사용
         if (defaultClientId && defaultClientSecret && defaultRefreshToken) {
           return {
@@ -955,6 +971,7 @@ export async function POST(request: NextRequest) {
 
       // 계정에 API 정보가 있으면 사용
       if (accountData.sp_api_client_id && accountData.sp_api_client_secret && accountData.sp_api_refresh_token) {
+        console.log(`계정 "${accountName}" (실제 DB 값: "${accountData.account_name}")의 API 정보를 사용합니다.`);
         return {
           clientId: accountData.sp_api_client_id,
           clientSecret: accountData.sp_api_client_secret,
@@ -964,6 +981,7 @@ export async function POST(request: NextRequest) {
       }
 
       // 계정에 API 정보가 없으면 기본값 사용
+      console.warn(`계정 "${accountName}" (실제 DB 값: "${accountData.account_name}")의 API 정보가 불완전합니다. (client_id: ${!!accountData.sp_api_client_id}, client_secret: ${!!accountData.sp_api_client_secret}, refresh_token: ${!!accountData.sp_api_refresh_token})`);
       if (defaultClientId && defaultClientSecret && defaultRefreshToken) {
         return {
           clientId: defaultClientId,
@@ -988,6 +1006,8 @@ export async function POST(request: NextRequest) {
     const targetYear = requestBody.year; // 특정 연도
     const targetMonth = requestBody.month; // 특정 월
     const saveToDatabase = requestBody.saveToDatabase !== false; // 기본값: true
+    const shouldFetchOrderMetrics = requestBody.fetchOrderMetrics !== false; // 기본값: true (주문 정보 가져오기)
+    const shouldFetchFees = requestBody.fetchFees !== false; // 기본값: true (Fee 정보 가져오기)
     const fetchInventory = requestBody.fetchInventory !== false; // 기본값: true (재고 정보 가져오기)
     const fetchOrderList = requestBody.fetchOrderList !== false; // 기본값: false (주문 목록은 선택사항)
     const maxPages = requestBody.maxPages || 1000; // 최대 페이지 수 (기본값: 1000페이지 = 10만개 주문)
@@ -1039,21 +1059,33 @@ export async function POST(request: NextRequest) {
     
     if (targetSku) {
       // 특정 SKU가 지정된 경우 해당 SKU의 계정 정보 조회
-      const { data: skuMasterData } = await supabase
+      const { data: skuMasterData, error: skuError } = await supabase
         .from('sku_master')
         .select('amazon_account_name')
         .eq('sku', targetSku)
         .eq('channel', 'amazon_us')
         .single();
       
-      if (skuMasterData && skuMasterData.amazon_account_name) {
-        apiCredentials = await getAccountApiCredentials(skuMasterData.amazon_account_name);
-        console.log(`SKU ${targetSku}의 계정 "${skuMasterData.amazon_account_name}"의 API 정보를 사용합니다.`);
+      if (skuError) {
+        console.warn(`SKU ${targetSku}를 찾을 수 없습니다:`, skuError.message);
+      } else if (skuMasterData) {
+        if (skuMasterData.amazon_account_name) {
+          console.log(`SKU ${targetSku}의 계정 이름: "${skuMasterData.amazon_account_name}"`);
+          apiCredentials = await getAccountApiCredentials(skuMasterData.amazon_account_name);
+          if (apiCredentials) {
+            console.log(`SKU ${targetSku}의 계정 "${skuMasterData.amazon_account_name}"의 API 정보를 사용합니다.`);
+          } else {
+            console.warn(`계정 "${skuMasterData.amazon_account_name}"의 API 정보를 찾을 수 없거나 불완전합니다.`);
+          }
+        } else {
+          console.warn(`SKU ${targetSku}에 amazon_account_name이 설정되어 있지 않습니다.`);
+        }
       }
     }
     
     // 계정별 API 정보가 없으면 기본값 사용
     if (!apiCredentials) {
+      // 1순위: 환경 변수의 기본 자격 증명
       if (defaultClientId && defaultClientSecret && defaultRefreshToken) {
         apiCredentials = {
           clientId: defaultClientId,
@@ -1061,12 +1093,48 @@ export async function POST(request: NextRequest) {
           refreshToken: defaultRefreshToken,
           baseUrl: defaultBaseUrl,
         };
-        console.log("기본 API 자격 증명을 사용합니다.");
+        console.log("환경 변수의 기본 API 자격 증명을 사용합니다.");
       } else {
-        return NextResponse.json({
-            error: "Missing required API credentials",
-            note: "환경 변수에 기본 API 자격 증명을 설정하거나, 계정 마스터에 API 정보를 등록하세요.",
-          }, { status: 400 });
+        // 2순위: account_master의 첫 번째 계정 사용 (SKU가 지정되지 않은 경우)
+        if (!targetSku && supabase) {
+          console.log("환경 변수가 없어 account_master의 첫 번째 계정을 조회합니다...");
+          const { data: firstAccount, error: accountError } = await supabase
+            .from('account_master')
+            .select('account_name, sp_api_client_id, sp_api_client_secret, sp_api_refresh_token, sp_api_base_url')
+            .not('sp_api_client_id', 'is', null)
+            .not('sp_api_client_secret', 'is', null)
+            .not('sp_api_refresh_token', 'is', null)
+            .limit(1)
+            .single();
+          
+          if (!accountError && firstAccount && firstAccount.sp_api_client_id && firstAccount.sp_api_client_secret && firstAccount.sp_api_refresh_token) {
+            apiCredentials = {
+              clientId: firstAccount.sp_api_client_id,
+              clientSecret: firstAccount.sp_api_client_secret,
+              refreshToken: firstAccount.sp_api_refresh_token,
+              baseUrl: firstAccount.sp_api_base_url || defaultBaseUrl,
+            };
+            console.log(`account_master의 첫 번째 계정 "${firstAccount.account_name}"의 API 정보를 사용합니다.`);
+          } else {
+            console.warn("account_master에서 유효한 계정을 찾을 수 없습니다:", accountError?.message);
+          }
+        }
+        
+        // 모든 방법이 실패한 경우
+        if (!apiCredentials) {
+          const errorMessage = targetSku 
+            ? `SKU "${targetSku}"의 계정 정보를 찾을 수 없거나 불완전합니다. 계정 마스터에서 API 정보를 확인하거나, 환경 변수에 기본 API 자격 증명을 설정하세요.`
+            : "환경 변수에 기본 API 자격 증명을 설정하거나, 계정 마스터에 API 정보를 등록하세요.";
+          
+          return NextResponse.json({
+              error: "Missing required API credentials",
+              note: errorMessage,
+              debug: {
+                targetSku: targetSku || null,
+                hasDefaultCredentials: !!(defaultClientId && defaultClientSecret && defaultRefreshToken),
+              }
+            }, { status: 400 });
+        }
       }
     }
 
@@ -1178,17 +1246,108 @@ export async function POST(request: NextRequest) {
         }
 
         if (skusToFetch.length > 0) {
-          // details=true로 호출하여 상세 재고 정보 가져오기
-          inventoryData = await fetchFBAInventory(
-            accessToken,
-            marketplaceIds,
-            skusToFetch,
-            true // details=true로 상세 정보 요청
-          );
+          if (!marketplaceIds || marketplaceIds.length === 0) {
+            console.warn("marketplaceIds가 없어 재고 데이터를 가져올 수 없습니다.");
+          } else {
+            // SKU를 계정별로 그룹화
+            const skuAccountMap = new Map<string, string[]>(); // account_name -> skus[]
+            
+            for (const sku of skusToFetch) {
+              const { data: skuMaster } = await supabase
+                .from('sku_master')
+                .select('amazon_account_name')
+                .eq('sku', sku)
+                .eq('channel', 'amazon_us')
+                .single();
+              
+              const accountName = skuMaster?.amazon_account_name || 'default';
+              if (!skuAccountMap.has(accountName)) {
+                skuAccountMap.set(accountName, []);
+              }
+              skuAccountMap.get(accountName)!.push(sku);
+            }
+            
+            console.log(`재고 정보를 ${skuAccountMap.size}개 계정별로 그룹화:`, 
+              Array.from(skuAccountMap.entries()).map(([account, skus]) => `${account}: ${skus.length}개 SKU`).join(', '));
+            
+            // 각 계정별로 재고 정보 가져오기
+            inventoryData = { payload: { inventorySummaries: [] } };
+            
+            for (const [accountName, accountSkus] of skuAccountMap.entries()) {
+              try {
+                // 계정별 API 자격 증명 가져오기
+                let accountAccessToken = accessToken;
+                let accountBaseUrl = SP_API_BASE_URL_DEFAULT;
+                
+                if (accountName !== 'default') {
+                  const accountApiCredentials = await getAccountApiCredentials(accountName);
+                  if (accountApiCredentials) {
+                    accountAccessToken = await getLwaAccessToken(
+                      accountApiCredentials.clientId,
+                      accountApiCredentials.clientSecret,
+                      accountApiCredentials.refreshToken
+                    );
+                    accountBaseUrl = accountApiCredentials.baseUrl;
+                    console.log(`계정 "${accountName}"의 API로 재고 정보 가져오기: ${accountSkus.length}개 SKU`);
+                  } else {
+                    console.warn(`계정 "${accountName}"의 API 자격 증명을 찾을 수 없습니다. 기본 자격 증명 사용.`);
+                  }
+                }
+                
+                // Amazon SP-API는 여러 SKU를 한 번에 요청해도 제한적으로만 반환하므로
+                // 각 SKU를 개별적으로 조회 (Rate Limit: 0.5 requests/second)
+                console.log(`계정 "${accountName}"의 ${accountSkus.length}개 SKU를 개별 조회 중...`);
+                
+                for (let i = 0; i < accountSkus.length; i++) {
+                  const sku = accountSkus[i];
+                  
+                  try {
+                    const skuInventoryData = await fetchFBAInventory(
+                      accountAccessToken,
+                      marketplaceIds,
+                      [sku], // 개별 SKU 조회
+                      true, // details=true로 상세 정보 요청
+                      accountBaseUrl
+                    );
+                    
+                    // 개별 SKU 결과를 합치기
+                    if (skuInventoryData?.payload?.inventorySummaries && skuInventoryData.payload.inventorySummaries.length > 0) {
+                      inventoryData.payload.inventorySummaries = [
+                        ...inventoryData.payload.inventorySummaries,
+                        ...skuInventoryData.payload.inventorySummaries
+                      ];
+                    }
+                    
+                    // 진행 상황 로깅 (10개마다)
+                    if ((i + 1) % 10 === 0 || i === accountSkus.length - 1) {
+                      console.log(`계정 "${accountName}" 진행: ${i + 1}/${accountSkus.length}개 SKU 처리 완료`);
+                    }
+                    
+                    // Rate Limit 방지: 0.5 requests/second = 2초 간격
+                    if (i < accountSkus.length - 1) {
+                      await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                  } catch (error: any) {
+                    console.error(`계정 "${accountName}" SKU "${sku}" 재고 정보 가져오기 실패:`, error.message);
+                    // 개별 SKU 실패해도 계속 진행
+                  }
+                }
+                
+                console.log(`계정 "${accountName}" 완료: ${inventoryData.payload.inventorySummaries.filter((s: any) => 
+                  accountSkus.includes(s.sellerSku)
+                ).length}개 SKU 재고 정보 수집`);
+              } catch (error: any) {
+                console.error(`계정 "${accountName}"의 재고 정보 가져오기 실패:`, error.message);
+                // 계정별 실패해도 계속 진행
+              }
+            }
+            
+            console.log(`총 ${inventoryData.payload.inventorySummaries.length}개 SKU의 재고 정보 수집 완료`);
+          }
           
           // 응답 구조 확인
-          const summaries = inventoryData.payload?.inventorySummaries || 
-                           inventoryData.inventorySummaries || 
+          const summaries = inventoryData?.payload?.inventorySummaries || 
+                           inventoryData?.inventorySummaries || 
                            (Array.isArray(inventoryData) ? inventoryData : []);
           console.log(`재고 데이터 가져오기 완료: ${summaries.length}개 SKU`);
         }
@@ -1238,7 +1397,7 @@ export async function POST(request: NextRequest) {
     // 5. 데이터를 Supabase에 저장 (요청된 경우)
     // getOrderMetrics API를 사용하여 주문 목록을 가져오지 않고도 집계된 매출 데이터를 가져옵니다
     let savedRecords = [];
-    if (saveToDatabase) {
+    if (saveToDatabase && shouldFetchOrderMetrics) {
       // 특정 연도/월이 지정된 경우 OrderMetrics API 사용 (타임아웃 방지)
       if (targetYear && targetMonth) {
         console.log("Supabase에 데이터 저장 중... (getOrderMetrics API 사용)");
@@ -1306,6 +1465,7 @@ export async function POST(request: NextRequest) {
           // 최종 interval 생성
           const interval = `${startDateStr}--${endDateStr}`;
           console.log(`OrderMetrics API 호출: ${targetYear}년 ${targetMonth}월 (${interval}, 시간대: ${timeZone})`);
+          console.log(`OrderMetrics API marketplaceIds:`, marketplaceIds);
           
           // SKU 목록 가져오기
           let skusToProcess: string[] = [];
@@ -1476,84 +1636,89 @@ export async function POST(request: NextRequest) {
                           console.error(`SKU ${sku}의 Referral Fee 계산 실패:`, error.message);
                         }
                         
-                        // 2. FBA Fee: API 호출로 계산 (기존 로직 유지)
-                        try {
-                          console.log(`SKU ${sku}의 FBA Fee 계산 중... (평균 가격: ${averagePrice} ${currencyCode})`);
-                          
-                          // SKU별 API 자격 증명 사용 (이미 위에서 가져옴)
-                          const feesData = await fetchFeesEstimates(
-                            skuAccessToken,
-                            marketplaceIds[0], // 첫 번째 마켓플레이스 ID 사용
-                            sku,
-                            averagePrice,
-                            currencyCode,
-                            skuApiCredentials.baseUrl // SKU별 Base URL 사용
-                          );
-                          
-                          // getMyFeesEstimateForSKU API 응답 구조: { payload: { FeesEstimateResult: {...} } }
-                          console.log(`SKU ${sku}의 FeesEstimate 응답 (전체):`, JSON.stringify(feesData, null, 2));
-                          
-                          if (feesData && feesData.payload && feesData.payload.FeesEstimateResult) {
-                            const feeEstimate = feesData.payload.FeesEstimateResult;
+                        // 2. FBA Fee: API 호출로 계산 (shouldFetchFees가 true인 경우에만)
+                        if (shouldFetchFees) {
+                          try {
+                            console.log(`SKU ${sku}의 FBA Fee 계산 중... (평균 가격: ${averagePrice} ${currencyCode})`);
                             
-                            console.log(`SKU ${sku}의 FeesEstimateResult:`, JSON.stringify(feeEstimate, null, 2));
+                            // SKU별 API 자격 증명 사용 (이미 위에서 가져옴)
+                            const feesData = await fetchFeesEstimates(
+                              skuAccessToken,
+                              marketplaceIds[0], // 첫 번째 마켓플레이스 ID 사용
+                              sku,
+                              averagePrice,
+                              currencyCode,
+                              skuApiCredentials.baseUrl // SKU별 Base URL 사용
+                            );
                             
-                            if (feeEstimate.Status === "Success" && feeEstimate.FeesEstimate) {
-                              const totalFeesEstimate = parseFloat(feeEstimate.FeesEstimate.TotalFeesEstimate?.Amount || '0');
+                            // getMyFeesEstimateForSKU API 응답 구조: { payload: { FeesEstimateResult: {...} } }
+                            console.log(`SKU ${sku}의 FeesEstimate 응답 (전체):`, JSON.stringify(feesData, null, 2));
+                            
+                            if (feesData && feesData.payload && feesData.payload.FeesEstimateResult) {
+                              const feeEstimate = feesData.payload.FeesEstimateResult;
                               
-                              // FeeDetailList에서 FBA Fee만 추출 (Referral Fee는 이미 계산됨)
-                              if (feeEstimate.FeesEstimate.FeeDetailList && Array.isArray(feeEstimate.FeesEstimate.FeeDetailList)) {
-                                for (const feeDetail of feeEstimate.FeesEstimate.FeeDetailList) {
-                                  const feeType = feeDetail.FeeType || '';
-                                  const feeAmount = parseFloat(feeDetail.FeeAmount?.Amount || '0');
-                                  
-                                  if (feeType.includes('FBA') || feeType.includes('Fulfillment')) {
-                                    fbaFeePerUnit = feeAmount;
+                              console.log(`SKU ${sku}의 FeesEstimateResult:`, JSON.stringify(feeEstimate, null, 2));
+                              
+                              if (feeEstimate.Status === "Success" && feeEstimate.FeesEstimate) {
+                                const totalFeesEstimate = parseFloat(feeEstimate.FeesEstimate.TotalFeesEstimate?.Amount || '0');
+                                
+                                // FeeDetailList에서 FBA Fee만 추출 (Referral Fee는 이미 계산됨)
+                                if (feeEstimate.FeesEstimate.FeeDetailList && Array.isArray(feeEstimate.FeesEstimate.FeeDetailList)) {
+                                  for (const feeDetail of feeEstimate.FeesEstimate.FeeDetailList) {
+                                    const feeType = feeDetail.FeeType || '';
+                                    const feeAmount = parseFloat(feeDetail.FeeAmount?.Amount || '0');
+                                    
+                                    if (feeType.includes('FBA') || feeType.includes('Fulfillment')) {
+                                      fbaFeePerUnit = feeAmount;
+                                    }
                                   }
                                 }
-                              }
-                              
-                              // FBA Fee가 없으면 총 수수료에서 Referral Fee를 제외한 나머지를 FBA Fee로 간주
-                              if (fbaFeePerUnit === 0 && totalFeesEstimate > 0) {
-                                const estimatedFbaFeePerUnit = totalFeesEstimate - referralFeePerUnit;
-                                if (estimatedFbaFeePerUnit > 0) {
-                                  fbaFeePerUnit = estimatedFbaFeePerUnit;
+                                
+                                // FBA Fee가 없으면 총 수수료에서 Referral Fee를 제외한 나머지를 FBA Fee로 간주
+                                if (fbaFeePerUnit === 0 && totalFeesEstimate > 0) {
+                                  const estimatedFbaFeePerUnit = totalFeesEstimate - referralFeePerUnit;
+                                  if (estimatedFbaFeePerUnit > 0) {
+                                    fbaFeePerUnit = estimatedFbaFeePerUnit;
+                                  }
+                                }
+                                
+                                // 월별 총 FBA Fee 계산
+                                totalFbaFee = fbaFeePerUnit * unitCount;
+                                
+                                console.log(`✅ SKU ${sku}의 FBA Fee 계산 완료:`, {
+                                  fbaFeePerUnit: fbaFeePerUnit,
+                                  totalFbaFee: totalFbaFee,
+                                  totalFeesEstimate: totalFeesEstimate,
+                                });
+                              } else {
+                                console.warn(`SKU ${sku}의 FBA Fee 계산 실패: Status=${feeEstimate.Status}`);
+                                if (feeEstimate.Error) {
+                                  console.warn(`SKU ${sku}의 FeesEstimate 에러 상세:`, JSON.stringify(feeEstimate.Error, null, 2));
                                 }
                               }
-                              
-                              // 월별 총 FBA Fee 계산
-                              totalFbaFee = fbaFeePerUnit * unitCount;
-                              
-                              console.log(`✅ SKU ${sku}의 FBA Fee 계산 완료:`, {
-                                fbaFeePerUnit: fbaFeePerUnit,
-                                totalFbaFee: totalFbaFee,
-                                totalFeesEstimate: totalFeesEstimate,
-                              });
-                            } else {
-                              console.warn(`SKU ${sku}의 FBA Fee 계산 실패: Status=${feeEstimate.Status}`);
-                              if (feeEstimate.Error) {
-                                console.warn(`SKU ${sku}의 FeesEstimate 에러 상세:`, JSON.stringify(feeEstimate.Error, null, 2));
-                              }
                             }
+                            
+                            // Rate Limit: 1 requests/second (1초당 1회, burst 2)
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                          } catch (error: any) {
+                            console.error(`SKU ${sku}의 FBA Fee 계산 실패:`, error.message);
+                            
+                            // 403 에러인 경우 권한 문제로 간주하고 경고만 출력
+                            if (error.message.includes('403') || error.message.includes('Unauthorized')) {
+                              console.warn(`⚠️ SKU ${sku}의 FBA Fee 계산 실패: Products API 권한이 없습니다.`);
+                              console.warn(`⚠️ SP-API 앱에서 "Product Pricing API" 또는 "Products API" 권한을 추가하고, Refresh Token을 다시 생성해야 합니다.`);
+                              console.warn(`⚠️ FBA Fee 정보 없이 매출 데이터만 저장합니다.`);
+                            }
+                            
+                            // FBA Fee 계산 실패해도 계속 진행 (FBA Fee는 0으로 유지)
                           }
-                          
-                          // Rate Limit: 1 requests/second (1초당 1회, burst 2)
-                          await new Promise(resolve => setTimeout(resolve, 1000));
-                        } catch (error: any) {
-                          console.error(`SKU ${sku}의 FBA Fee 계산 실패:`, error.message);
-                          
-                          // 403 에러인 경우 권한 문제로 간주하고 경고만 출력
-                          if (error.message.includes('403') || error.message.includes('Unauthorized')) {
-                            console.warn(`⚠️ SKU ${sku}의 FBA Fee 계산 실패: Products API 권한이 없습니다.`);
-                            console.warn(`⚠️ SP-API 앱에서 "Product Pricing API" 또는 "Products API" 권한을 추가하고, Refresh Token을 다시 생성해야 합니다.`);
-                            console.warn(`⚠️ FBA Fee 정보 없이 매출 데이터만 저장합니다.`);
-                          }
-                          
-                          // FBA Fee 계산 실패해도 계속 진행 (FBA Fee는 0으로 유지)
+                        } else {
+                          // shouldFetchFees가 false인 경우 FBA Fee는 0으로 유지
+                          console.log(`SKU ${sku}의 FBA Fee 계산을 건너뜁니다. (shouldFetchFees=false)`);
                         }
                       }
                       
-                      // Supabase에 저장
+                      // Supabase에 저장 (기존 데이터가 있을 때만 업데이트)
                       const { data: existingData } = await supabase
                         .from('amazon_us_monthly_data')
                         .select('*')
@@ -1562,21 +1727,18 @@ export async function POST(request: NextRequest) {
                         .eq('month', month)
                         .single();
                       
-                      const updateData: any = {
-                        sku: sku,
-                        year: year,
-                        month: month,
-                        gross_sales: totalSales,
-                        refunds: totalRefunds, // 환불 금액
-                        total_order_quantity: unitCount, // 팔린 개수 총계
-                        fba_fee: fbaFeePerUnit, // 개당 FBA 수수료
-                        referral_fee: referralFeePerUnit, // 개당 추천 수수료
-                        total_fba_fee: totalFbaFee, // 월별 총 FBA 수수료 (개당 수수료 × 판매 수량)
-                        total_referral_fee: totalReferralFee, // 월별 총 추천 수수료 (개당 수수료 × 판매 수량)
-                      };
-                      
                       if (existingData) {
-                        // 기존 데이터 업데이트
+                        // 기존 데이터가 있는 경우에만 업데이트
+                        const updateData: any = {
+                          gross_sales: totalSales,
+                          refunds: totalRefunds, // 환불 금액
+                          total_order_quantity: unitCount, // 팔린 개수 총계
+                          fba_fee: fbaFeePerUnit, // 개당 FBA 수수료
+                          referral_fee: referralFeePerUnit, // 개당 추천 수수료
+                          total_fba_fee: totalFbaFee, // 월별 총 FBA 수수료 (개당 수수료 × 판매 수량)
+                          total_referral_fee: totalReferralFee, // 월별 총 추천 수수료 (개당 수수료 × 판매 수량)
+                        };
+                        
                         const { data, error } = await supabase
                           .from('amazon_us_monthly_data')
                           .update(updateData)
@@ -1591,17 +1753,8 @@ export async function POST(request: NextRequest) {
                           console.log(`✅ SKU ${sku}의 ${year}년 ${month}월 데이터 업데이트 완료`);
                         }
                       } else {
-                        // 새 데이터 삽입
-                        const { data, error } = await supabase
-                          .from('amazon_us_monthly_data')
-                          .insert(updateData);
-                        
-                        if (error) {
-                          console.error(`SKU ${sku}의 ${year}년 ${month}월 데이터 삽입 실패:`, error);
-                        } else {
-                          savedRecords.push({ sku, year, month, ...updateData });
-                          console.log(`✅ SKU ${sku}의 ${year}년 ${month}월 데이터 삽입 완료`);
-                        }
+                        // 기존 데이터가 없으면 업데이트하지 않음
+                        console.log(`⚠️ SKU ${sku}의 ${year}년 ${month}월 데이터가 amazon_us_monthly_data에 존재하지 않아 업데이트를 건너뜁니다.`);
                       }
                     } else {
                       console.log(`⚠️ SKU ${sku}의 ${year}년 ${month}월 메트릭스는 요청한 ${targetYear}년 ${targetMonth}월과 일치하지 않습니다.`);
@@ -2034,18 +2187,50 @@ export async function POST(request: NextRequest) {
 
     // 5. 재고 정보 업데이트 (주문 데이터와 관계없이 항상 실행)
     let inventoryUpdated = 0;
-    if (fetchInventory && inventoryData) {
+    let allSkusToProcess: string[] = []; // 모든 처리할 SKU 목록 저장
+    
+    if (fetchInventory) {
       console.log("재고 정보 업데이트 중...");
       
-      // 응답 구조: payload.inventorySummaries
-      const summaries = inventoryData.payload?.inventorySummaries || [];
+      // 재고 정보를 가져올 SKU 목록 준비 (이미 위에서 가져온 목록 재사용)
+      if (targetSku) {
+        allSkusToProcess = [targetSku];
+      } else {
+        // 특정 브랜드나 모든 SKU 가져오기
+        const { data: skuList } = await supabase
+          .from('sku_master')
+          .select('sku')
+          .eq('channel', 'amazon_us');
+        
+        if (skuList && skuList.length > 0) {
+          allSkusToProcess = skuList.map((s: any) => s.sku);
+        }
+      }
       
-      if (summaries && Array.isArray(summaries) && summaries.length > 0) {
+      if (inventoryData) {
+        // 응답 구조: payload.inventorySummaries
+        const summaries = inventoryData.payload?.inventorySummaries || 
+                         inventoryData.inventorySummaries || 
+                         (Array.isArray(inventoryData) ? inventoryData : []);
+        
+        console.log(`재고 정보 업데이트 시작: ${summaries.length}개 SKU의 재고 정보 처리`);
+        console.log('재고 데이터 응답 구조 확인:', {
+          hasPayload: !!inventoryData.payload,
+          payloadKeys: inventoryData.payload ? Object.keys(inventoryData.payload) : [],
+          hasInventorySummaries: !!inventoryData.inventorySummaries,
+          isArray: Array.isArray(inventoryData),
+          responseKeys: Object.keys(inventoryData || {}),
+        });
+        
         const currentDate = new Date();
         const currentYear = targetYear || currentDate.getFullYear();
         const currentMonth = targetMonth || (currentDate.getMonth() + 1);
-
-        for (const summary of summaries) {
+        
+        // 재고 정보가 조회된 SKU 목록
+        const fetchedSkus = new Set<string>();
+        
+        if (summaries && Array.isArray(summaries) && summaries.length > 0) {
+          for (const summary of summaries) {
           const sku = summary.sellerSku;
           if (!sku) {
             console.warn("재고 요약에 sellerSku가 없습니다:", summary);
@@ -2147,13 +2332,18 @@ export async function POST(request: NextRequest) {
             fbaInventory = summary.totalQuantity;
           }
 
-          // 재고 정보 업데이트 (상세 정보 포함)
-          const { error: updateError } = await supabase
+          // 재고 정보 업데이트 (기존 데이터가 있는 경우에만 업데이트, 새로 생성하지 않음)
+          const { data: existingMonthlyData } = await supabase
             .from('amazon_us_monthly_data')
-            .upsert({
-              sku: sku,
-              year: currentYear,
-              month: currentMonth,
+            .select('*')
+            .eq('sku', sku)
+            .eq('year', currentYear)
+            .eq('month', currentMonth)
+            .single();
+          
+          if (existingMonthlyData) {
+            // 기존 데이터가 있는 경우에만 업데이트
+            const inventoryUpdateData = {
               fba_inventory: fbaInventory,
               inbound_working: inboundWorking,
               inbound_shipped: inboundShipped,
@@ -2172,36 +2362,33 @@ export async function POST(request: NextRequest) {
               unfulfillable_carrier_damaged: unfulfillableCarrierDamaged,
               unfulfillable_defective: unfulfillableDefective,
               unfulfillable_expired: unfulfillableExpired,
-            }, {
-              onConflict: 'sku,year,month',
-            });
+            };
 
-          if (!updateError) {
-            inventoryUpdated++;
-            console.log(`재고 정보 업데이트 완료: ${sku}`, {
-              fba_inventory: fbaInventory,
-              inbound_working: inboundWorking,
-              inbound_shipped: inboundShipped,
-              inbound_receiving: inboundReceiving,
-              reserved_orders: reservedOrders,
-              reserved_fc_transfer: reservedFcTransfer,
-              reserved_fc_processing: reservedFcProcessing,
-              researching_total: researchingTotal,
-              researching_short_term: researchingShortTerm,
-              researching_mid_term: researchingMidTerm,
-              researching_long_term: researchingLongTerm,
-              unfulfillable_total: unfulfillableTotal,
-              unfulfillable_customer_damaged: unfulfillableCustomerDamaged,
-              unfulfillable_warehouse_damaged: unfulfillableWarehouseDamaged,
-              unfulfillable_distributor_damaged: unfulfillableDistributorDamaged,
-              unfulfillable_carrier_damaged: unfulfillableCarrierDamaged,
-              unfulfillable_defective: unfulfillableDefective,
-              unfulfillable_expired: unfulfillableExpired,
-            });
+            const { error: updateError } = await supabase
+              .from('amazon_us_monthly_data')
+              .update(inventoryUpdateData)
+              .eq('sku', sku)
+              .eq('year', currentYear)
+              .eq('month', currentMonth);
+
+            if (!updateError) {
+              inventoryUpdated++;
+              console.log(`재고 정보 업데이트 완료: ${sku}`, inventoryUpdateData);
+            } else {
+              console.error(`재고 정보 업데이트 실패 (${sku}):`, updateError);
+            }
           } else {
-            console.error(`재고 정보 업데이트 실패 (${sku}):`, updateError);
+            // 기존 데이터가 없으면 건너뜀 (새로 생성하지 않음)
+            console.warn(`⚠️ SKU ${sku}의 ${currentYear}년 ${currentMonth}월 데이터가 amazon_us_monthly_data에 없습니다. 재고 정보 업데이트를 건너뜁니다.`);
+          }
+          
+          // 조회된 SKU 목록에 추가
+          fetchedSkus.add(sku);
           }
         }
+        
+        // 재고 정보가 조회되지 않은 SKU들은 처리하지 않음
+        // (기존 데이터가 있는 경우에만 업데이트하므로, 조회되지 않은 SKU는 건너뜀)
         
         console.log(`총 ${inventoryUpdated}개의 SKU 재고 정보 업데이트 완료`);
       } else {
